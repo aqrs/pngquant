@@ -55,8 +55,8 @@ use --force to overwrite. See man page for full list of options.\n"
 #define omp_get_thread_num() 0
 #endif
 
-#include "rwpng.h"  /* typedefs, common macros, public prototypes */
 #include "libimagequant.h" /* if it fails here, run: git submodule update; ./configure; or add -Ilib to compiler flags */
+#include "rwpng.h"  /* typedefs, common macros, public prototypes */
 #include "pngquant_opts.h"
 
 static pngquant_error prepare_output_image(liq_result *result, liq_image *input_image, rwpng_color_transform tag, png8_image *output_image);
@@ -264,7 +264,9 @@ pngquant_error pngquant_main(struct pngquant_options *options)
         return INVALID_ARGUMENT;
     }
     if (options->colors && LIQ_OK != liq_set_max_colors(options->liq, options->colors)) {
-        fputs("Number of colors must be between 2 and 256.\n", stderr);
+	char buf[ 256 ];
+	sprintf( buf, "Number of colors must be between 2 and %d.\n", MAX_PALETTE );
+        fputs( buf, stderr);
         return INVALID_ARGUMENT;
     }
 
@@ -280,7 +282,11 @@ pngquant_error pngquant_main(struct pngquant_options *options)
 
     // new filename extension depends on options used. Typically basename-fs8.png
     if (options->extension == NULL) {
-        options->extension = options->floyd > 0 ? "-fs8.png" : "-or8.png";
+        if( options->colors > 256 ){
+            options->extension = options->floyd > 0 ? "-fs16.png" : "-or16.png";
+        } else {
+            options->extension = options->floyd > 0 ? "-fs8.png" : "-or8.png";
+        }
     }
 
     if (options->output_file_path && options->num_files != 1) {
@@ -629,7 +635,11 @@ static pngquant_error write_image(png8_image *output_image, png24_image *output_
     #pragma omp critical (libpng)
     {
         if (output_image) {
-            retval = rwpng_write_image8(outfile, output_image);
+            if( output_image->num_palette > 256 ){
+                retval = rwpng_write_image8_24(outfile, output_image);
+            } else {
+                retval = rwpng_write_image8(outfile, output_image);
+            }
         } else {
             retval = rwpng_write_image24(outfile, output_image24);
         }
@@ -714,7 +724,7 @@ static pngquant_error prepare_output_image(liq_result *result, liq_image *input_
     ** Step 3.7 [GRR]: allocate memory for the entire indexed image
     */
 
-    output_image->indexed_data = malloc(output_image->height * output_image->width);
+    output_image->indexed_data = malloc(output_image->height * output_image->width * sizeof( short ) );
     output_image->row_pointers = malloc(output_image->height * sizeof(output_image->row_pointers[0]));
 
     if (!output_image->indexed_data || !output_image->row_pointers) {

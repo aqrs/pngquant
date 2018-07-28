@@ -13,6 +13,7 @@
 #include <limits.h>
 
 #include "png.h"  /* if this include fails, you need to install libpng (e.g. libpng-devel package) and run ./configure */
+#include "libimagequant.h" /* if it fails here, run: git submodule update; ./configure; or add -Ilib to compiler flags */
 #include "rwpng.h"
 #if USE_LCMS
 #include "lcms2.h"
@@ -594,13 +595,69 @@ pngquant_error rwpng_write_image8(FILE *outfile, png8_image *mainprog_ptr)
         png_set_tRNS(png_ptr, info_ptr, trans, num_trans, NULL);
     }
 
-    rwpng_write_end(&info_ptr, &png_ptr, mainprog_ptr->row_pointers);
+    unsigned char ** row_pointers8 = malloc( mainprog_ptr->height * sizeof(row_pointers8[0]));
+    unsigned char * indexed_data8 = malloc( mainprog_ptr->width * mainprog_ptr->height );
+
+
+    for( int iy=0; iy<mainprog_ptr->height; iy++ ){
+        row_pointers8[ iy ] = &indexed_data8[ iy*mainprog_ptr->width];
+        for( int ix=0; ix<mainprog_ptr->width; ix++ ){
+            indexed_data8[ ix + iy*mainprog_ptr->width ] = mainprog_ptr->indexed_data[ ix + iy*mainprog_ptr->width ] & 255;
+        }
+
+    }
+
+
+    rwpng_write_end(&info_ptr, &png_ptr, row_pointers8);
 
     if (SUCCESS == write_state.retval && write_state.maximum_file_size && write_state.bytes_written > write_state.maximum_file_size) {
         return TOO_LARGE_FILE;
     }
 
+    free( indexed_data8 );
+    free( row_pointers8 );
+
+
     return write_state.retval;
+}
+
+pngquant_error rwpng_write_image8_24(FILE *outfile, const png8_image *mainprog_ptr)
+{
+    png_structp png_ptr;
+    png_infop info_ptr;
+
+    pngquant_error retval = rwpng_write_image_init((rwpng_png_image*)mainprog_ptr, &png_ptr, &info_ptr, 0);
+    if (retval) return retval;
+
+    png_init_io(png_ptr, outfile);
+
+    png_set_filter(png_ptr, PNG_FILTER_TYPE_BASE, PNG_FILTER_VALUE_NONE);
+    rwpng_set_gamma(info_ptr, png_ptr, mainprog_ptr->gamma, mainprog_ptr->output_color);
+
+    png_set_IHDR(png_ptr, info_ptr, mainprog_ptr->width, mainprog_ptr->height,
+                 8, PNG_COLOR_TYPE_RGB_ALPHA,
+                 0, PNG_COMPRESSION_TYPE_DEFAULT,
+                 PNG_FILTER_TYPE_BASE);
+
+    rwpng_rgba * rgbwork = ( rwpng_rgba * )malloc( mainprog_ptr->width * mainprog_ptr->height * 4 );
+    memset( rgbwork, 0, mainprog_ptr->width * mainprog_ptr->height * 4 );
+
+    for( int iy=0; iy<mainprog_ptr->height; iy++ ){
+        for( int ix=0; ix<mainprog_ptr->width; ix++ ){
+            rgbwork[ ix + iy * mainprog_ptr->width ] = mainprog_ptr->palette[ mainprog_ptr->indexed_data[ ix + iy * mainprog_ptr->width ] ];
+        }
+    }
+
+
+    png_bytepp row_pointers = rwpng_create_row_pointers(info_ptr, png_ptr, ( unsigned char * )rgbwork, mainprog_ptr->height, 0);
+
+    rwpng_write_end(&info_ptr, &png_ptr, row_pointers);
+
+    free( rgbwork );
+
+    free(row_pointers);
+
+    return SUCCESS;
 }
 
 pngquant_error rwpng_write_image24(FILE *outfile, const png24_image *mainprog_ptr)

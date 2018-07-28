@@ -10,8 +10,8 @@
 #include <stdbool.h>
 #include <getopt.h>
 
-#include "rwpng.h"
 #include "libimagequant.h" /* if you get compile error, add -Ilib to compiler flags */
+#include "rwpng.h"
 #include "pngquant_opts.h"
 
 extern char *optarg;
